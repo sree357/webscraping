@@ -3,61 +3,28 @@ import time
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from datetime import datetime
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from fake_useragent import UserAgent
 
 def extract_job_title(soup):
-    """Extracts job titles from the soup."""
     return [title.text for title in soup.find_all('span', {'title': True})]
 
 def extract_company_name(soup):
-    """Extracts company names from the soup."""
     return [company.text for company in soup.find_all('span', {'data-testid': 'company-name'})]
 
 def extract_job_location(soup):
-    """Extracts job locations from the soup."""
     return [loc.text for loc in soup.find_all('div', {'data-testid': 'text-location'})]
 
 def extract_salaries(soup):
-    """Extracts salaries from the soup."""
     return [sal.text if sal.text else "Not specified" for sal in soup.find_all('div', class_='metadata salary-snippet-container')]
 
 def extract_job_links(soup):
-    """Extracts job links from the soup."""
     return [a['href'] for a in soup.find_all('a', {'class': 'jcs-JobTitle'}, href=True)]
 
 def extract_job_type(soup):
-    """Extracts job types from the soup."""
     job_type_element = soup.find('div', class_='css-1p3gyjy e1xnxm2i0')
     return job_type_element.text if job_type_element else "Not specified"
 
 def scrape_indeed_jobs(job_name, location, num_days, output_file):
-    """
-    Scrapes Indeed jobs based on the specified parameters and saves the data to a CSV file.
-
-    Parameters:
-    - job_name (str): The job title or keyword.
-    - location (str): The location for the job search.
-    - num_days (int): Number of days for which job listings are considered.
-    - output_file (str): The name of the output CSV file.
-    """
-    # Set up Chrome options with a random user agent and additional headers
-    chrome_options = Options()
-    chrome_options.add_argument(f'user-agent={UserAgent().random}')
-    chrome_options.add_argument('--headless')
-    chrome_options.add_argument('window-size=1920x1080')
-    chrome_options.add_argument('--disable-gpu')
-    chrome_options.add_argument('--disable-extensions')
-    chrome_options.add_argument('--disable-blink-features=AutomationControlled')  # Added to avoid detection
-
-    # Set up the Chrome service with executable path
-    chrome_service = Service(executable_path=ChromeDriverManager().install())
-
-    # Initialize the webdriver with Chrome options and service
-    driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
-
+    driver = webdriver.Chrome()
     base_url = f'https://in.indeed.com/jobs?q={job_name.replace(" ", "+")}&l={location.replace(" ", "+")}&fromage={num_days}&start='
     data_list = []
 
