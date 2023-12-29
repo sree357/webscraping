@@ -2,74 +2,108 @@ import pandas as pd
 import time
 from bs4 import BeautifulSoup
 from selenium import webdriver
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from urllib.parse import urljoin
+from datetime import datetime
 from selenium.webdriver.chrome.options import Options
-from fake_useragent import UserAgent
+from fake_useragent import UserAgent  # Make sure to install this library
 
-# Set up Chrome options with a random user agent and additional headers
-chrome_options = Options()
-chrome_options.add_argument(f'user-agent={UserAgent().random}')
-chrome_options.add_argument('--headless')
-chrome_options.add_argument('window-size=1920x1080')
-chrome_options.add_argument('--disable-gpu')
-chrome_options.add_argument('--disable-extensions')
-chrome_options.add_argument('--disable-blink-features=AutomationControlled')  # Added to avoid detection
+def scroll_down(driver):
+    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
-# Set up the Chrome service with executable path
-chrome_service = Service(executable_path=ChromeDriverManager().install())
+def click_show_more_button(driver):
+    try:
+        show_more_button = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'button[data-test="load-more"]')))
+        show_more_button.click()
+        return True
+    except:
+        return False
 
-# Initialize the webdriver with Chrome options and service
-driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
+def get_job_links(soup):
+    return [link['href'] for link in soup.find_all('a', {'class': 'JobCard_trackingLink__zUSOo'})]
 
-base_url = 'https://in.indeed.com/jobs?q=data+scientist&l=kerala&rbl=Kerala&jlid=b2ef2f03f7a1c2f3&fromage=14&vjk=66d6ede3b70b98e5'
+def get_company_names(employer_info):
+    return [info.find('span', {'class': 'EmployerProfile_employerName__Xemli'}).text if info.find('span', {'class': 'EmployerProfile_employerName__Xemli'}) else "Not specified" for info in employer_info]
 
-data_list = []
+def get_job_titles(soup):
+    return [title.text for title in soup.find_all('a', {'class': 'JobCard_seoLink__WdqHZ'})]
 
-try:
-    for start in range(0, 150, 10):
-        print(start)  # Assuming 9658 results, with 15 results per page
-        url = f'{base_url}{start}'
+def get_job_locations(soup):
+    return [loc.text if loc.text else "Not specified" for loc in soup.find_all('div', {'class': 'JobCard_location__N_iYE'})]
 
-        driver.get(url)
+def get_salaries(soup):
+    return [salary.text.strip() if salary.text else "Not specified" for salary in soup.find_all('div', {'class': 'JobCard_salaryEstimate___m9kY'})]
 
-        # Wait for the page to load
-        time.sleep(1)  # Add a delay
+def get_job_descriptions(soup):
+    return [desc.text.strip() if desc.text else "Not specified" for desc in soup.find_all('div', {'class': 'JobCard_jobDescriptionSnippet__HUIod'})]
 
-        # Simulate scrolling to load more job listings
-        for _ in range(5):  # Scroll 5 times (you may adjust this based on your needs)
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)  # Add a delay to allow content to load
+def scrape_job_data(base_url, job_location, job_name, date_posted):
+    chrome_options = Options()
+    chrome_options.add_argument(f'user-agent={UserAgent().random}')
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--disable-gpu')
+
+    driver = webdriver.Chrome(options=chrome_options)
+    data_list = []
+
+    try:
+        full_url = f'{base_url}?fromAge={date_posted}'
+        driver.get(full_url)
+
+        while click_show_more_button(driver):
+            scroll_down(driver)
+            time.sleep(2)  # Adjust sleep time based on your needs
 
         page_source = driver.page_source
-
         soup = BeautifulSoup(page_source, 'html.parser')
 
-        # Extract job details
-        job_titles = [title.text for title in soup.find_all('span', {'title': True})]
-        company_names = [company.text for company in soup.find_all('span', {'data-testid': 'company-name'})]
-        job_locations = [loc.text for loc in soup.find_all('div', {'data-testid': 'text-location'})]
-        salaries = [sal.text if sal.text else "Not specified" for sal in
-                    soup.find_all('div', class_='metadata salary-snippet-container')]
+        job_links = get_job_links(soup)
+        employer_info = soup.find_all('div', {'class': 'EmployerProfile_employerInfo__GaPbq'})
+        company_names = get_company_names(employer_info)
+        job_titles = get_job_titles(soup)
+        job_locations = get_job_locations(soup)
+        salaries = get_salaries(soup)
+        job_descriptions = get_job_descriptions(soup)
 
         # Append the data to the list
         for i in range(len(job_titles)):
+            job_link = urljoin(full_url, job_links[i])
             data = {
-                "index": start + i,
+                "index": i,
                 "Job Title": job_titles[i] if i < len(job_titles) else None,
                 "Company Name": company_names[i] if i < len(company_names) else None,
                 "Job Location": job_locations[i] if i < len(job_locations) else None,
-                "Salary": salaries[i] if i < len(salaries) else None
+                "Salary": salaries[i] if i < len(salaries) else None,
+                "Job Description": job_descriptions[i] if i < len(job_descriptions) else None,
+                "Job Link": job_link if i < len(job_links) else None,
+                "Job Location Filter": job_location,
+                "Job Name Filter": job_name,
+                "Date Posted Filter": date_posted,
+                "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Add current timestamp
             }
             data_list.append(data)
 
-except Exception as e:
-    print(f"An error occurred: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
-finally:
-    driver.quit()
+    finally:
+        driver.quit()
 
-# Convert data list to DataFrame
-df = pd.DataFrame(data_list)
-print(df)
-df.to_csv(r'C:\Users\Sree_Luminar\PycharmProjects\Job_scraping\jobs2_output.csv')
+    return data_list
+
+def save_to_csv(data_list, csv_path):
+    df = pd.DataFrame(data_list)
+    df.to_csv(csv_path, index=False)
+
+if __name__ == "__main__":
+    base_url = 'https://www.glassdoor.co.in/Job/kochi-india-data-science-jobs-SRCH_IL.0,11_IC2887994_KO12,24.htm'
+    job_location_filter = 'Kochi'  # Set your desired job location
+    job_name_filter = 'Data Scientist'  # Set your desired job name
+    date_posted_filter = '7'  # Set your desired date posted filter (in days)
+    scraped_data = scrape_job_data(base_url, job_location_filter, job_name_filter, date_posted_filter)
+
+    # Specify a different path where you have write access
+    csv_path = r'C:\Users\Sree_Luminar\PycharmProjects\Job_scraping\glassdoor.csv'
+    save_to_csv(scraped_data, csv_path)
