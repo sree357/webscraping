@@ -1,3 +1,3 @@
 this file is web scraping of job websites.
-this use beautfull soup for scraping.
+this uses beautiful soup for scraping.
 selenium for automation.
