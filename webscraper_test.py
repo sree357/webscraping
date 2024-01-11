@@ -1,30 +1,83 @@
+import pandas as pd
+import time
 from bs4 import BeautifulSoup
-import requests
+from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 
-url = 'https://infopark.in/companies/company'
+# Set up the Chrome WebDriver
+driver = webdriver.Chrome()
+
+# URL of the Technopark A-Z company listing page
+base_url = 'https://www.technopark.org/company-a-z-listing'
+
+# List to store extracted data
+data_list = []
 
 try:
-    response = requests.get(url, verify=False)
-    response.raise_for_status()
+    # Open the A-Z listing page
+    driver.get(base_url)
 
-    soup = BeautifulSoup(response.text, 'html.parser')
+    # Scroll to the bottom of the page to load more companies
+    actions = ActionChains(driver)
+    for _ in range(2):  # Adjust the range as needed
+        actions.send_keys(Keys.END).perform()
+        time.sleep(2)  # Adjust the sleep time as needed
 
-    job_opening_links = []
+    # Get the HTML content after scrolling
+    page_source = driver.page_source
+    soup = BeautifulSoup(page_source, 'html.parser')
 
-    company_containers = soup.find_all('div', class_='my-list')
+    # Extract company links
+    company_links = [a['href'] for a in soup.select('.cmpny-detail a[href^="/company/"]')][:5]  # Limit to the first 5 companies
 
-    for container in company_containers:
-        company_name = container.find('h3', class_='company-name-hd').text.strip()
-        job_opening_link = container.find('a', class_='btn-info')['href']
+    # Visit each company page and scrape details
+    for company_link in company_links:
+        # Construct the full company URL
+        company_url = f'https://www.technopark.org{company_link}'
+        # Open the company page in a new window
+        driver.execute_script("window.open('', '_blank');")
+        # Switch to the new window
+        driver.switch_to.window(driver.window_handles[1])
+        driver.get(company_url)
+        time.sleep(2)  # Adjust the sleep time as needed
 
-        job_opening_links.append({
-            'Company Name': company_name,
-            'Job Opening Link': job_opening_link
-        })
+        # Get the URL of the current tab (window)
+        current_tab_url = driver.current_url
 
-    # Print or use the job opening links as needed
-    for job_opening_link in job_opening_links:
-        print(job_opening_link)
+        # Get the HTML content of the company page
+        company_page_source = driver.page_source
+        company_soup = BeautifulSoup(company_page_source, 'html.parser')
 
-except requests.exceptions.RequestException as e:
+        # Extract relevant company details
+        company_name_element = company_soup.find('div', class_='company-name')
+
+        # Extract company name if available
+        company_name = company_name_element.text.strip() if company_name_element else None
+
+        # Append the data to the list
+        data = {
+            "Company Name": company_name,
+            "Tab URL": current_tab_url
+        }
+        data_list.append(data)
+
+        # Close the current tab (window) to switch back to the original window
+        driver.close()
+        # Switch back to the original window
+        driver.switch_to.window(driver.window_handles[0])
+
+except Exception as e:
     print(f"An error occurred: {e}")
+
+finally:
+    # Close the WebDriver
+    driver.quit()
+
+# Convert data list to DataFrame
+df = pd.DataFrame(data_list)
+print(df)
+# Save data to a CSV file
+df.to_csv('technopark_companies.csv', index=False)

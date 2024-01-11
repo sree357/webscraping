@@ -1,81 +1,85 @@
-import csv
+import pandas as pd
+import time
 from bs4 import BeautifulSoup
-import requests
+from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from urllib.parse import unquote
 
-def scrape_job_links(url):
-    try:
-        response = requests.get(url, verify=False)
-        response.raise_for_status()
+# Set up the Chrome WebDriver
+driver = webdriver.Chrome()
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+# URL of the Technopark A-Z company listing page
+base_url = 'https://www.technopark.org/company-a-z-listing'
 
-        job_opening_links = []
+# List to store extracted data
+data_list = []
 
-        company_containers = soup.find_all('div', class_='my-list')
+def extract_company_name(soup):
+    """Extracts company name from the soup."""
+    company_name_element = soup.find('div', {'style': 'background-image:url(\'/resources/images/company/ico-company.png\');'})
+    company_name = company_name_element.find_next('li').text.strip() if company_name_element else None
+    # Remove 'company name' prefix and leading spaces
+    company_name = company_name.replace('company name', '').strip() if company_name else None
+    return company_name
 
-        for container in company_containers:
-            company_name = container.find('h3', class_='company-name-hd').text.strip()
-            job_opening_link = container.find('a', class_='btn-info')['href']
+try:
+    # Open the A-Z listing page
+    driver.get(base_url)
 
-            job_opening_links.append({
-                'Company Name': company_name,
-                'Job Opening Link': job_opening_link
-            })
+    # Scroll to the bottom of the page to load more companies
+    actions = ActionChains(driver)
+    for _ in range(2):  # Adjust the range as needed
+        actions.send_keys(Keys.END).perform()
+        time.sleep(2)  # Adjust the sleep time as needed
 
-        return job_opening_links
+    # Get the HTML content after scrolling
+    page_source = driver.page_source
+    soup = BeautifulSoup(page_source, 'html.parser')
 
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred: {e}")
-        return None
+    # Extract company links
+    company_links = [a['href'] for a in soup.select('.cmpny-detail a[href^="/company/"]')][:2]  # Limit to the first 5 companies
 
-def scrape_company_details(job_links):
-    company_details_list = []
+    # Visit each company page and scrape details
+    for company_link in company_links:
+        # Construct the full company URL
+        company_url = f'https://www.technopark.org{company_link}'
+        # Open the company page in a new window
+        driver.execute_script("window.open('', '_blank');")
+        # Switch to the new window
+        driver.switch_to.window(driver.window_handles[1])
+        driver.get(company_url)
+        time.sleep(2)  # Adjust the sleep time as needed
 
-    for job_link in job_links:
-        try:
-            response = requests.get(job_link['Job Opening Link'], verify=False)
-            response.raise_for_status()
+        # Get the HTML content of the company page
+        company_page_source = driver.page_source
+        company_soup = BeautifulSoup(company_page_source, 'html.parser')
 
-            soup = BeautifulSoup(response.text, 'html.parser')
+        # Extract company name using the renamed method
+        company_name = extract_company_name(company_soup)
 
-            company_name = soup.find('h5').text.strip()
+        # Append the data to the list
+        data = {
+            "Company Name": company_name,
+            "Tab URL": driver.current_url
+        }
+        data_list.append(data)
 
-            address_details = soup.find('div', class_='address_details')
-            if address_details and address_details.find('p', recursive=False):
-                address_lines = [line.strip() for line in address_details.find('p', recursive=False).get_text("\n", strip=True).split('\n') if line.strip()]
-            else:
-                address_lines = []
+        # Close the current tab (window) to switch back to the original window
+        driver.close()
+        # Switch back to the original window
+        driver.switch_to.window(driver.window_handles[0])
 
-            company_email = soup.find('div', class_='company_email').get_text(strip=True).replace('Email:', '') if soup.find('div', class_='company_email') else ''
-            company_phone = soup.find('div', class_='company_phone').get_text(strip=True).replace('Ph:', '') if soup.find('div', class_='company_phone') else ''
+except Exception as e:
+    print(f"An error occurred: {e}")
 
-            company_details_list.append({
-                'Company Name': company_name,
-                'Company Email': company_email,
-                'Company Phone': company_phone,
-                'Address Lines': '\n'.join(address_lines)
-            })
+finally:
+    # Close the WebDriver
+    driver.quit()
 
-        except requests.exceptions.RequestException as e:
-            print(f"An error occurred while scraping details from {job_link['Job Opening Link']}: {e}")
-
-    return company_details_list
-
-def save_to_csv(company_details, csv_filename='company_details.csv'):
-    with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ['Company Name', 'Company Email', 'Company Phone', 'Address Lines']
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-
-        writer.writeheader()
-        for details in company_details:
-            writer.writerow(details)
-
-# Example usage
-url = 'https://infopark.in/companies/company'
-job_links = scrape_job_links(url)
-
-if job_links:
-    company_details = scrape_company_details(job_links)
-    save_to_csv(company_details)
-
-print("Company details saved to company_details.csv")
+# Convert data list to DataFrame
+df = pd.DataFrame(data_list)
+print(df)
+# Save data to a CSV file
+df.to_csv('technopark_company_names.csv', index=False)
