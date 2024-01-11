@@ -3,7 +3,6 @@ import time
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 
@@ -11,7 +10,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 driver = webdriver.Chrome()
 
 # URL of the Technopark A-Z company listing page
-base_url = 'https://www.technopark.org/company-a-z-listing'
+base_url = 'https://www.cyberparkkerala.org/companies-at-park'
 
 # List to store extracted data
 data_list = []
@@ -31,17 +30,15 @@ try:
     soup = BeautifulSoup(page_source, 'html.parser')
 
     # Extract company links
-    company_links = [a['href'] for a in soup.select('.cmpny-detail a[href^="/company/"]')][:5]  # Limit to the first 5 companies
+    company_links = [a['href'] for a in soup.select('.flt_rigt a[href^="https://www.cyberparkkerala.org/listings/"]')][:5]
 
     # Visit each company page and scrape details
     for company_link in company_links:
-        # Construct the full company URL
-        company_url = f'https://www.technopark.org{company_link}'
         # Open the company page in a new window
         driver.execute_script("window.open('', '_blank');")
         # Switch to the new window
         driver.switch_to.window(driver.window_handles[1])
-        driver.get(company_url)
+        driver.get(company_link)
         time.sleep(2)  # Adjust the sleep time as needed
 
         # Get the URL of the current tab (window)
@@ -80,4 +77,4 @@ finally:
 df = pd.DataFrame(data_list)
 print(df)
 # Save data to a CSV file
-df.to_csv('technopark_companies.csv', index=False)
+df.to_csv('cyberpark_companies.csv', index=False)
